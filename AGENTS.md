@@ -3,7 +3,7 @@
 ## 프로젝트
 
 **Briefy** — 자연어 한 문장으로 일정/과제/루틴/식단을 기록하고, 하루를 한 화면으로 브리핑하는 개인 생활 관리 웹앱.
-사용자 입력 → Codex API가 JSON으로 파싱(intent + type + 속성) → DB 저장 → 브리핑 대시보드에 반영.
+사용자 입력 → Groq API가 JSON으로 파싱(intent + type + 속성) → DB 저장 → 브리핑 대시보드에 반영.
 
 ## 기술 스택
 
@@ -12,7 +12,7 @@
 | **FE** | React 19 + TypeScript (Vite 8, Tailwind CSS v4) | 모바일(390px) 기준 반응형 |
 | **BE** | Express 5 (TypeScript, tsx로 실행) | 자연어 파싱 + CRUD API |
 | **DB** | Supabase (Postgres) | 서버에서만 접근 (`@supabase/supabase-js`) |
-| **AI** | Codex API (`@anthropic-ai/sdk`) | 자연어 파싱 전용, 서버에서만 호출 |
+| **AI** | Groq API (`groq-sdk`, 모델 `openai/gpt-oss-120b`) | 자연어 파싱 전용, 서버에서만 호출 |
 | **공통** | zod (스키마 검증), date-fns (날짜 계산) | |
 | **라우팅** | react-router-dom | 클라이언트 사이드 라우팅 |
 | **린트** | oxlint | ESLint 대신 사용 (더 빠름) |
@@ -29,7 +29,6 @@ briefy/
 │  ├─ lib/                 # 순수 로직 함수
 │  ├─ api/                 # 서버 호출 래퍼
 │  ├─ types/               # FE 전용 타입
-│  ├─ mocks/               # 프로토타입 목데이터 (실제 API 연동 전 임시)
 │  ├─ assets/              # 정적 에셋
 │  ├─ App.tsx
 │  ├─ main.tsx
@@ -37,17 +36,21 @@ briefy/
 ├─ server/                 # BE (Express)
 │  ├─ index.ts             # Express 진입점
 │  ├─ routes/              # 라우트 정의
-│  ├─ services/            # Codex 파싱·Supabase CRUD
-│  └─ lib/                 # 프롬프트 템플릿 등
+│  ├─ services/            # Groq 파싱·Supabase CRUD (+ *.test.ts 유닛 테스트 colocate)
+│  ├─ lib/                 # 프롬프트 템플릿, Groq/Supabase 클라이언트
+│  └─ scripts/seed.ts      # 개발용 seed 스크립트
 ├─ shared/                 # FE/BE 공유
 │  └─ schemas.ts           # zod 스키마 (엔티티·파싱 결과 단일 정의)
 ├─ supabase/
-│  └─ migrations/          # 테이블 생성 SQL (반드시 커밋)
-├─ docs/                   # plan.md, design.md, wireframes/, prototype/
-├─ .Codex/                # skills/briefy-ui/ (디자인 토큰·컴포넌트 규칙)
+│  ├─ migrations/          # 테이블 생성 SQL (반드시 커밋)
+│  └─ seed.sql             # SQL Editor용 개발 데이터
+├─ docs/                   # 기획·설계 문서와 화면 자료
+├─ .agents/                # Codex용 프로젝트 스킬
+├─ .claude/                # Claude Code 전용 에이전트·명령·스킬 연결 파일
 ├─ tsconfig.json           # FE + shared 용
 ├─ tsconfig.server.json    # BE + shared 용
 ├─ vite.config.ts          # Tailwind v4, @shared alias, /api 프록시
+├─ vitest.config.ts        # 유닛 테스트 설정
 ├─ .prettierrc
 ├─ .oxlintrc.json
 └─ .env.example
@@ -65,14 +68,20 @@ briefy/
 | `npm run format` | Prettier 포맷 적용 |
 | `npm run format:check` | Prettier 포맷 검사 |
 | `npm run typecheck` | FE + BE TypeScript 타입 검사 |
+| `npm run test` | Vitest 유닛 테스트 1회 실행 |
+| `npm run test:watch` | Vitest 감시 모드 |
+| `npm run seed` | 오늘 기준 개발용 데이터 삽입 |
 
 ## API 규칙
 
 - `POST /api/parse` — 자연어 문장 → 구조화 결과 (저장까지 수행, 모호하면 되묻기 선택지 반환)
+- `POST /api/parse/resolve` — 되묻기 후보를 Groq 재호출 없이 저장
 - `GET /api/briefing?date=YYYY-MM-DD` — 해당 일자 브리핑 데이터
 - `GET/POST/PATCH/DELETE /api/items/:type` — 엔티티 CRUD (type: schedules|tasks|routines|meals|memos|reminders)
+- `POST /api/items/routines/:id/complete` — 루틴 완료 기록 upsert
 - `GET /api/health` — 서버 상태 확인
 - 에러 응답은 항상 `{ error: { code, message } }` 형태로 통일
+- 현재 자연어 파이프라인은 create(6종)와 complete(루틴)만 처리한다. update/delete/query는 P1 범위이며 현재 원문을 memo로 보존한다.
 
 ## 아키텍처 원칙
 
@@ -83,6 +92,7 @@ briefy/
 - **파싱 결과는 저장 전에 `shared/schemas.ts`의 zod 스키마로 검증한다.** 모호한 입력은 임의 저장하지 않고 되묻기 선택지를 응답으로 반환한다. intent는 create/update/delete/query/complete 5개만 허용.
 - **스키마는 `shared/`에 한 번만 정의한다.** FE 타입과 BE 검증이 같은 정의를 공유하며, 타입을 손으로 복제하지 않는다.
 - **path alias**: FE에서 shared 접근 시 `@shared/schemas` 사용 (vite.config.ts에 설정됨)
+- **과제·메모 완료는 아카이브로 처리한다.** `completed=true`인 항목은 브리핑에서 제외하고 완료함에서 복구하거나 영구 삭제한다.
 
 ## 컨벤션
 
@@ -128,7 +138,9 @@ Conventional Commits 형식을 따른다:
 ## 환경변수
 
 - `.env`는 커밋 금지 (`.gitignore`에 등록됨), `.env.example`에 키 이름만 유지
-- 필수 키: `ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `PORT`
+- 필수 키(BE): `GROQ_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `PORT`
+- 선택 키(BE): `CORS_ORIGIN`
+- 선택 키(FE): `VITE_API_BASE_URL`
 
 ## 개발 서버 설정
 
@@ -141,16 +153,17 @@ Conventional Commits 형식을 따른다:
 
 - `any` 타입 금지 — `shared/schemas.ts`에서 추론된 타입을 사용
 - 외부 UI 라이브러리 금지 (별도 합의 전까지 Tailwind만). 상태관리 라이브러리도 별도 합의 전까지 금지 (useState/useReducer 사용)
-- API 키(Codex, Supabase)를 프론트 코드·`VITE_*` 환경변수에 노출 금지 — 서버 전용
+- API 키(Groq, Supabase)를 프론트 코드·`VITE_*` 환경변수에 노출 금지 — 서버 전용
 - Supabase 테이블을 대시보드에서 수동 생성 금지 — 반드시 `supabase/migrations/` SQL 파일로
 - MVP 범위 밖 기능 선제 구현 금지: 음성 입력(STT)/음성 대화(TTS), 푸시 알림, 주간·월간 뷰, 통계, 외부 캘린더 동기화, 로그인/계정
 - 일정 관리 외 응답(잡담, 검색) 기능 추가 금지
 - P0(A-1 저장+되묻기, 브리핑 홈) 완성 전에 P1(A-2 조회, A-3 수정·삭제) 착수 금지
 
-## 미결 사항
+## 배포
 
-- 배포 방식: FE(Vercel) + BE 호스팅(Render 등) vs 로컬 시연 — 과제 요건 확인 후 결정
-- 테스트 프레임워크: Vitest 도입 여부 — 2주차 개발 시작 시 결정
+- FE는 Vercel, BE는 Render 구성을 기준으로 한다.
+- FE에는 `VITE_API_BASE_URL`, BE에는 필수 서버 환경변수와 `CORS_ORIGIN`을 설정한다.
+- Supabase 마이그레이션은 배포 파이프라인에 없으므로 SQL Editor에서 번호순으로 적용한다.
 
 ## 참고
 

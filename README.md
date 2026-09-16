@@ -1,325 +1,213 @@
 # Briefy
 
-> **"한 문장으로 관리하는 하루"** — 자연어 한 줄로 적어내면 스케줄과 루틴이 정리되고, 브리핑까지 해주는 자연어 라이프 매니저
+> 한 문장으로 기록하고, 한 화면에서 확인하는 개인 생활 관리 웹앱
 
-"금요일까지 데이터베이스 과제 제출"이라고 적으면 AI가 마감일 있는 과제로 분류해 저장합니다. 폼 입력도, 앱 전환도 없습니다. 그리고 아침에 앱을 열면 오늘의 일정·운동 루틴(오늘이 상체 day인지까지)·식단·마감 임박 과제가 **하루 브리핑 한 화면**에 모입니다.
+Briefy는 한국어 자연어 입력을 일정·과제·루틴·식단·메모·리마인더로 구조화해
+저장하고, 오늘 필요한 정보를 브리핑 화면에 모아 보여줍니다.
 
-## 핵심 기능
+예를 들어 `금요일까지 데이터베이스 과제 제출`을 입력하면 AI가 제목과 마감일을
+추출하고, 서버가 결과를 검증한 뒤 과제로 저장합니다. `다음주 화요일 오후 3시
+팀플 회의, 전날 알려줘`처럼 한 문장에서 일정과 리마인더를 함께 만들 수도 있습니다.
 
-**A. 자연어 CRUD 파이프라인** — 단일 입력창에 자유로운 한국어 문장을 입력하면 Groq API가 의도(create/update/delete/query/complete)와 항목 유형(일정/과제/루틴/식단/메모)을 파싱해 처리합니다.
+## 현재 구현 범위
 
-| 입력 예시 | 동작 |
+| 기능 | 상태 | 설명 |
+| --- | --- | --- |
+| 자연어 등록 | 완료 | 일정·과제·루틴·식단·메모·리마인더 생성 |
+| 모호한 입력 되묻기 | 완료 | 후보를 선택하면 AI 재호출 없이 저장 |
+| 루틴 완료 입력 | 완료 | `오늘 운동 다 함` 같은 문장으로 당일 완료 기록 |
+| 오늘의 브리핑 | 완료 | 일정, 루틴, 식단, 미완료 과제·메모 표시 |
+| 과제·메모 완료함 | 완료 | 완료, 복구, 영구 삭제 지원 |
+| 자연어 조회 | 진행 전 | 현재 입력 원문을 메모로 보존 |
+| 자연어 수정·삭제 | 진행 전 | 현재 입력 원문을 메모로 보존 |
+| 푸시 알림 발송 | Phase 2 | 리마인더 저장까지만 구현 |
+
+세부 진행 상황은 [checklist.md](./checklist.md)를 기준으로 확인합니다.
+
+## 전체 구조
+
+브라우저는 Supabase에 직접 접근하지 않습니다. 모든 데이터는 Express API와 Zod
+검증을 거치며, Groq와 Supabase의 비밀 키는 서버에서만 사용합니다.
+
+```mermaid
+flowchart LR
+  U[사용자] --> FE[React 클라이언트]
+  FE --> API[Express API]
+  API --> PARSE[자연어 파싱 서비스]
+  PARSE --> GROQ[Groq API]
+  PARSE --> DB[(Supabase)]
+  API --> SERVICES[브리핑·CRUD 서비스]
+  SERVICES --> DB
+  DB --> SERVICES --> API --> FE
+```
+
+자연어 입력은 다음 순서로 처리됩니다.
+
+1. `ChatInput`이 `POST /api/parse`로 원문을 전송합니다.
+2. `parseService`가 현재 날짜와 스키마 정보를 포함한 프롬프트를 Groq에 전달합니다.
+3. AI 응답을 `LlmOutputSchema`와 엔티티별 생성 스키마로 검증합니다.
+4. 명확한 결과는 Supabase에 저장하고, 모호한 결과는 선택 후보를 반환합니다.
+5. 저장 후 프론트엔드는 브리핑을 다시 조회해 화면을 갱신합니다.
+6. 미지원 요청이나 구조화 검증 실패는 원문을 메모로 보존합니다.
+
+## 디렉터리 안내
+
+```text
+hub/
+├── src/                       # React 프론트엔드
+│   ├── pages/                 # 화면 조합과 상태 관리
+│   ├── components/
+│   │   ├── briefing/          # 일정·루틴·식단·과제·메모 카드
+│   │   ├── chat/              # 입력, 확인, 되묻기, 오류, 완료함
+│   │   └── common/            # 공통 UI
+│   ├── api/                   # Express API 호출 래퍼
+│   ├── lib/                   # 프론트엔드 순수 변환 로직
+│   ├── types/                 # 화면 상태 전용 타입
+│   ├── App.tsx
+│   └── index.css              # Tailwind import와 디자인 토큰
+├── server/                    # Express 백엔드
+│   ├── index.ts               # 서버 진입점과 라우터 등록
+│   ├── routes/                # HTTP 요청 검증과 응답
+│   ├── services/              # 파싱, 브리핑, CRUD, 루틴 계산
+│   ├── lib/                   # Groq·Supabase 클라이언트, 프롬프트
+│   └── scripts/seed.ts        # 개발 데이터 입력 스크립트
+├── shared/
+│   └── schemas.ts             # FE/BE 공용 Zod 스키마와 타입
+├── supabase/
+│   ├── migrations/            # DB 스키마 변경 이력
+│   └── seed.sql               # SQL Editor용 개발 데이터
+├── docs/                      # 기획, 디자인, 데이터 모델, 화면 자료
+├── AGENTS.md                  # 모든 코딩 에이전트가 따르는 공통 규칙
+├── CLAUDE.md                  # Claude Code에서 AGENTS.md로 연결하는 안내
+└── checklist.md               # 구현 현황과 다음 작업
+```
+
+처음 코드를 읽을 때는 아래 순서가 가장 빠릅니다.
+
+1. [BriefingPage.tsx](./src/pages/BriefingPage.tsx): 화면 상태와 사용자 액션
+2. [parseService.ts](./server/services/parseService.ts): 자연어 파싱과 저장
+3. [briefingService.ts](./server/services/briefingService.ts): 오늘 데이터와 루틴 순환 계산
+4. [schemas.ts](./shared/schemas.ts): 데이터 계약
+5. [0001_init.sql](./supabase/migrations/0001_init.sql): 실제 DB 구조
+
+## 주요 계층의 책임
+
+### 프론트엔드
+
+`BriefingPage`가 브리핑 데이터, 오버레이, 완료 애니메이션을 관리합니다. UI 컴포넌트는
+표현에 집중하고 서버 요청은 `src/api/`의 함수로 분리합니다. 배포 환경에서는
+`VITE_API_BASE_URL`, 로컬에서는 Vite의 `/api` 프록시를 사용합니다.
+
+### 백엔드
+
+라우트는 요청 형식과 HTTP 오류를 담당하고, 서비스는 비즈니스 로직과 Supabase 접근을
+담당합니다. 브리핑 서비스는 일정·과제·루틴·완료 기록·식단·메모를 병렬 조회하고,
+`daily`, `weekly:*`, 순환 그룹 규칙에 따라 오늘 표시할 루틴을 계산합니다.
+
+### 공유 스키마
+
+`shared/schemas.ts`가 엔티티와 API 결과 타입의 단일 기준입니다. 프론트엔드와 서버가
+같은 스키마에서 TypeScript 타입을 추론하므로 같은 타입을 각 계층에 다시 만들지 않습니다.
+
+### 데이터베이스
+
+테이블은 7개로 고정되어 있습니다.
+
+| 테이블 | 역할 |
 | --- | --- |
-| "금요일까지 데이터베이스 과제 제출" | 마감일 있는 과제로 저장 |
-| "다음주 화요일 오후 3시 팀플 회의, 전날 알려줘" | 일정 + 리마인더 동시 생성 |
-| "오늘 운동 다 함" | 오늘 루틴 완료 처리 |
-| "치과 4시로 바꿔줘" | (준비 중) 아직 지원 안 함 — 원문을 메모로 안전하게 보존 |
-| "이번 주 마감 뭐 있어?" | (준비 중) 아직 지원 안 함 — 원문을 메모로 안전하게 보존 |
+| `schedules` | 날짜와 시간이 정해진 일정 |
+| `tasks` | 마감일과 완료 상태가 있는 과제 |
+| `routines` | 반복 루틴의 정의와 내용 |
+| `routine_logs` | 날짜별 루틴 완료 기록 |
+| `meals` | 날짜별 아침·점심·저녁 식단 |
+| `memos` | 자유 메모와 파싱 실패 원문 |
+| `reminders` | 일정·과제에 연결된 알림 시각 |
 
-모호한 입력("운동")은 임의 저장하지 않고 선택지를 되묻고, 파싱에 실패하거나 아직 지원하지 않는 요청(수정/삭제/조회)이 들어와도 원문을 메모로 보존합니다 — **사용자 입력은 절대 유실되지 않습니다.**
+모든 테이블은 사용자의 원문인 `raw_input`을 보존합니다. 상세한 설계 근거는
+[데이터 모델 문서](./docs/data-model.md)에 있습니다.
 
-**B. 오늘의 브리핑 대시보드** — 앱을 열면 오늘의 일정(시간순), 루틴(시간이 아니라 "상체 day · 벤치프레스, 러닝 3km"라는 내용까지), 식단, 마감 임박 과제(D-day), 메모가 한 화면에 표시됩니다. 루틴을 완료하면 다음 운동일에 순환의 다음 단계(하체 day)가 자동으로 표시됩니다.
+## API
 
-과제와 메모는 체크박스로 완료 처리하며, 완료 즉시 브리핑에서 사라집니다. 헤더의 "완료한 Task로 이동" 버튼을 누르면 완료된 과제·메모만 모아 보는 별도 화면(완료함)으로 전환되고, 각 항목을 **복구**(다시 브리핑에 표시) 또는 **영구 삭제**할 수 있습니다.
+| 메서드와 경로 | 역할 |
+| --- | --- |
+| `GET /api/health` | 서버 상태 확인 |
+| `POST /api/parse` | 자연어 파싱 후 저장 또는 되묻기 반환 |
+| `POST /api/parse/resolve` | 되묻기 후보 확정 후 저장 |
+| `GET /api/briefing?date=YYYY-MM-DD` | 지정 날짜의 브리핑 조회 |
+| `GET /api/items/:type` | 항목 목록 조회 |
+| `POST /api/items/:type` | 항목 생성 |
+| `PATCH /api/items/:type/:id` | 항목 수정 |
+| `DELETE /api/items/:type/:id` | 항목 삭제 |
+| `POST /api/items/routines/:id/complete` | 날짜별 루틴 완료 상태 저장 |
 
-## 아키텍처
+`tasks`와 `memos` 목록은 `?completed=true|false`로 필터링할 수 있습니다. 오류 응답은
+`{ "error": { "code": "...", "message": "..." } }` 형식을 사용합니다.
 
-브라우저는 Supabase에 직접 접근하지 않고 모든 데이터는 Express API를 거칩니다.
+## 로컬 실행
 
-```mermaid
-flowchart TD
-  subgraph CLIENT["Client — React 19 + Vite (:5173)"]
-    BP["BriefingPage.tsx"]
-    CI["ChatInput.tsx"]
-    CARDS["RoutineCard / DeadlineItem / ScheduleCard / MealCard / MemoCard"]
-    CV["CompletedView.tsx\n(완료함)"]
-  end
-
-  subgraph API["Express API — :3001"]
-    R_BRIEF["GET /api/briefing"]
-    R_ITEMS["/api/items/:type\nGET(·?completed=) · POST · PATCH · DELETE"]
-    R_COMPLETE["POST /api/items/routines/:id/complete"]
-    R_PARSE["POST /api/parse\nPOST /api/parse/resolve"]
-  end
-
-  subgraph SERVICES["server/services/"]
-    S_BRIEF["briefingService\nresolveTodayRoutines()"]
-    S_ITEMS["schedule · task · routine\nmeal · memo · reminder Service"]
-    S_LOG["routineLogService\nupsertRoutineLog()"]
-    S_PARSE["parseService\nparseText() / resolveCandidate()"]
-  end
-
-  DB[("Supabase Postgres\n7 tables")]
-  GROQ["Groq API\nopenai/gpt-oss-120b"]
-
-  BP -->|"fetch"| R_BRIEF
-  BP -->|"fetch"| R_ITEMS
-  CARDS -->|"체크박스 토글(완료)"| R_ITEMS
-  CARDS -->|"체크박스 토글(완료)"| R_COMPLETE
-  BP -->|"완료 버튼"| CV
-  CV -->|"조회 · 복구 · 영구삭제"| R_ITEMS
-  CI -->|"전송"| R_PARSE
-
-  R_BRIEF --> S_BRIEF
-  R_ITEMS --> S_ITEMS
-  R_COMPLETE --> S_LOG
-  R_PARSE --> S_PARSE
-
-  S_BRIEF --> DB
-  S_ITEMS --> DB
-  S_LOG --> DB
-  S_PARSE --> GROQ
-  S_PARSE --> DB
-```
-
-<details>
-<summary>데이터 흐름 — 브리핑 조회 (구현·검증됨)</summary>
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant U as 사용자
-  participant FE as BriefingPage
-  participant EX as Express :3001
-  participant BS as briefingService
-  participant DB as Supabase
-
-  U->>FE: 페이지 진입
-  FE->>EX: GET /api/briefing
-  EX->>BS: getBriefing(date)
-  par 6개 테이블 병렬 조회
-    BS->>DB: schedules (date=오늘)
-  and
-    BS->>DB: tasks (전체)
-  and
-    BS->>DB: routines (전체)
-  and
-    BS->>DB: routine_logs (전체)
-  and
-    BS->>DB: meals (date=오늘)
-  and
-    BS->>DB: memos (전체)
-  end
-  DB-->>BS: 결과 6종
-  BS->>BS: resolveTodayRoutines()
-  BS-->>EX: Briefing 객체
-  EX-->>FE: 200 JSON (BriefingSchema.parse)
-  FE-->>U: 카드 렌더링
-```
-
-</details>
-
-<details>
-<summary>데이터 흐름 — 완료 체크 (구현·검증됨)</summary>
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant U as 사용자
-  participant FE as RoutineCard / DeadlineItem
-  participant EX as Express
-  participant SV as Service
-  participant DB as Supabase
-
-  U->>FE: 체크박스 클릭
-  FE->>FE: 낙관적 업데이트
-  alt 과제 완료
-    FE->>EX: PATCH /api/items/tasks/:id { completed }
-    EX->>SV: taskService.updateTask()
-  else 루틴 완료
-    FE->>EX: POST /api/items/routines/:id/complete
-    EX->>SV: routineLogService.upsertRoutineLog()
-  end
-  SV->>DB: update / upsert (unique(routine_id,date))
-  DB-->>SV: 반영된 row
-  SV-->>EX: 도메인 객체
-  EX-->>FE: 200 JSON
-```
-
-</details>
-
-<details>
-<summary>데이터 흐름 — 완료함(아카이브) (구현·검증됨)</summary>
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant U as 사용자
-  participant FE as BriefingPage / CompletedView
-  participant EX as Express
-  participant SV as taskService / memoService
-  participant DB as Supabase
-
-  U->>FE: 헤더 "완료한 Task로 이동" 클릭
-  FE->>EX: GET /api/items/tasks?completed=true
-  FE->>EX: GET /api/items/memos?completed=true
-  EX->>SV: listTasks(true) / listMemos(true)
-  SV->>DB: select … where completed = true
-  DB-->>SV: rows
-  SV-->>EX: 완료된 과제·메모
-  EX-->>FE: 200 JSON
-  FE-->>U: 완료함 화면 렌더 (복구 · 영구삭제 버튼)
-
-  alt 복구
-    U->>FE: "복구" 클릭
-    FE->>EX: PATCH /api/items/:type/:id { completed: false }
-    EX->>SV: updateTask/Memo()
-    SV->>DB: update
-    FE->>FE: 브리핑 재조회 + 완료함 목록 재조회
-  else 영구 삭제
-    U->>FE: "영구 삭제" 클릭
-    FE->>EX: DELETE /api/items/:type/:id
-    EX->>SV: deleteTask/Memo()
-    SV->>DB: delete
-    FE->>FE: 완료함 목록 재조회
-  end
-```
-
-브리핑(`GET /api/briefing`)은 `tasks`·`memos` 모두 `completed=false`인 항목만 반환하므로, 체크박스로 완료 처리한 항목은 완료함에서 복구하기 전까지 브리핑에 다시 나타나지 않습니다.
-
-</details>
-
-<details>
-<summary>데이터 흐름 — 자연어 저장</summary>
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant U as 사용자
-  participant FE as ChatInput / BriefingPage
-  participant EX as Express
-  participant PS as parseService
-  participant AI as Groq API (gpt-oss-120b)
-  participant DB as Supabase
-
-  U->>FE: "금요일까지 DB 과제 제출"
-  FE->>EX: POST /api/parse { message }
-  EX->>PS: parseText(message)
-  PS->>AI: system prompt(오늘 날짜·필드 정의) + user message
-  AI-->>PS: JSON (status/results/fields)
-  alt status=resolved, 필드 검증 성공
-    PS->>DB: 해당 엔티티 저장 (raw_input은 서버가 원문으로 채움)
-    PS-->>EX: { status: resolved, items }
-  else status=clarify
-    PS-->>EX: { status: clarify, question, candidates, rawInput }
-  else status=unsupported 또는 검증 실패
-    PS->>DB: memos에 원문 그대로 보존
-    PS-->>EX: { status: resolved, items: [memo] }
-  end
-  EX-->>FE: 200 JSON
-  opt clarify였던 경우 — 사용자가 후보 선택
-    FE->>EX: POST /api/parse/resolve { intent, type, fields, rawInput }
-    EX->>PS: resolveCandidate(...) — Groq 재호출 없이 바로 저장
-    PS->>DB: 저장
-    PS-->>EX: { status: resolved, items }
-    EX-->>FE: 200 JSON
-  end
-  FE-->>U: 확인 카드 (+ 실행취소 시 DELETE 후 브리핑 재조회)
-```
-
-</details>
-
-## 기술 스택
-
-- **Frontend**: React + TypeScript (Vite, Tailwind CSS) — 모바일(390px) 기준 반응형
-- **Backend**: Express — 자연어 파싱 엔드포인트(Groq API) + 엔티티 CRUD API
-- **Database**: Supabase (Postgres)
-- **AI**: Groq API (`openai/gpt-oss-120b`, 자연어 파싱 전용)
-
-## 시작하기
-
-### 요구 사항
-
-- Node.js 20+
-- Supabase 프로젝트 (URL, service role key)
-- Groq API key
-
-### 설치 및 실행
+요구 사항은 Node.js 20 이상, Supabase 프로젝트, Groq API 키입니다.
 
 ```bash
-# 의존성 설치
 npm install
-
-# 환경변수 설정
 cp .env.example .env
-# .env에 GROQ_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY 입력
+```
 
-# supabase/migrations/ 안의 SQL 파일을 번호 순서대로(0001, 0002, ...) Supabase SQL Editor에서 실행한 뒤,
-# 개발용 샘플 데이터 채우기 (오늘 날짜 기준 상대값이라 언제 실행해도 오늘 데이터로 채워짐)
+`.env`에 다음 값을 입력합니다.
+
+```dotenv
+PORT=3001
+GROQ_API_KEY=
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+```
+
+Supabase SQL Editor에서 `supabase/migrations/`의 파일을 번호순으로 실행한 다음 개발
+데이터를 넣고 서버를 시작합니다.
+
+```bash
 npm run seed
-
-# 개발 서버 실행 (FE + BE)
 npm run dev
 ```
 
-> ⚠️ Groq/Supabase API 키는 서버 환경변수로만 관리합니다. `VITE_*` 클라이언트 노출 변수에는 절대 넣지 마세요. (`VITE_API_BASE_URL`은 비밀값이 아닌 BE 주소 설정이라 예외 — 아래 "배포" 참고)
+- 프론트엔드: `http://localhost:5173`
+- 백엔드: `http://localhost:3001`
 
-### 테스트
+## 개발 명령어
 
-```bash
-npm run test        # 1회 실행
-npm run test:watch  # 감시 모드
-```
+| 명령어 | 설명 |
+| --- | --- |
+| `npm run dev` | 프론트엔드와 백엔드 동시 실행 |
+| `npm run dev:client` | Vite만 실행 |
+| `npm run dev:server` | Express를 watch 모드로 실행 |
+| `npm run seed` | 오늘 기준 개발 데이터 입력 |
+| `npm run test` | Vitest 단일 실행 |
+| `npm run typecheck` | 프론트엔드·백엔드 타입 검사 |
+| `npm run lint` | oxlint 검사 |
+| `npm run format:check` | Prettier 형식 검사 |
+| `npm run build` | 프론트엔드 프로덕션 빌드 |
 
-Vitest 기반. 순수 함수는 소스 파일과 같은 디렉토리에 `*.test.ts`로 colocate합니다 (예: `server/services/queryService.ts` + `queryService.test.ts`). 새 순수 함수를 테스트 먼저 작성해서 만들 때는 `tdd-workflow` 스킬을 참고하세요.
+## AGENTS.md와 CLAUDE.md
+
+두 파일은 원래 Codex 계열 도구와 Claude Code가 각각 자동으로 찾는 프로젝트 지침 파일이라
+함께 생겼습니다. 같은 규칙을 두 파일에 복사하면서 내용이 서로 달라지는 문제가 있었기
+때문에 지금은 [AGENTS.md](./AGENTS.md)를 공통 규칙의 단일 기준으로 사용합니다.
+
+[CLAUDE.md](./CLAUDE.md)는 Claude Code의 자동 탐색 호환성을 위해 남겨 둔 연결 문서입니다.
+공통 규칙을 수정할 때는 `AGENTS.md`만 변경합니다. 공통 스킬의 기준은 `.agents/skills/`,
+Claude Code 전용 에이전트와 명령은 `.claude/`에 둡니다.
 
 ## 배포
 
-FE(Vercel)와 BE(Render)를 **서로 다른 도메인**에 나눠 배포합니다. FE는 개발 중엔 Vite 프록시로 `/api/*`를 BE로 상대 경로 호출하지만, 배포 시엔 도메인이 갈리므로 `VITE_API_BASE_URL`로 BE 절대 주소를 지정해야 합니다(`src/api/http.ts`의 `apiFetch`가 이 값을 모든 요청 앞에 붙입니다).
+기준 구성은 프론트엔드 Vercel, 백엔드 Render입니다.
 
-### BE — Render
+- Render: `npm install` 후 `npm start`, 서버 환경변수와 `CORS_ORIGIN` 설정
+- Vercel: Vite 프리셋으로 `npm run build`, `VITE_API_BASE_URL`을 Render 주소로 설정
+- Supabase: 마이그레이션 파일을 SQL Editor에서 번호순으로 직접 적용
 
-- **Root Directory**: 저장소 루트 (`server/`가 서브패키지가 아니라 루트에서 바로 실행됨)
-- **Build Command**: `npm install`
-- **Start Command**: `npm start` (`tsx server/index.ts` — 별도 컴파일 없이 TS를 직접 실행)
-- **환경변수**: `GROQ_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `PORT`(Render가 자동 주입하면 생략 가능), `CORS_ORIGIN`(Vercel 배포 도메인으로 설정 — 비워두면 전체 origin 허용)
+## 관련 문서
 
-### FE — Vercel
-
-- **Framework Preset**: Vite (자동 감지)
-- **Build Command**: `npm run build`
-- **Output Directory**: `dist`
-- **환경변수**: `VITE_API_BASE_URL` = Render에 배포된 BE 주소(예: `https://briefy-api.onrender.com`) — 빌드 시점에 번들에 포함되므로 반드시 배포 전에 설정
-
-### 배포 전 확인
-
-```bash
-npm run build   # FE 프로덕션 빌드 확인
-npm start       # BE 프로덕션 실행 방식(tsx) 로컬 검증
-```
-
-Supabase 마이그레이션(`supabase/migrations/`)은 배포 파이프라인에 포함되지 않습니다 — 새 마이그레이션이 추가되면 Supabase SQL Editor에서 수동 실행합니다.
-
-## 프로젝트 구조
-
-```
-briefy/
-├─ CLAUDE.md                  # AI 협업 규칙 (Claude Code용)
-├─ .claude/skills/briefy-ui/  # 디자인 스킬 (토큰·컴포넌트 규칙)
-├─ docs/
-│  ├─ plan.md                 # 서비스 기획서
-│  ├─ design.md               # 디자인 방향 및 참조
-│  └─ wireframes/             # 화면 와이어프레임 (S1, S2-b, S2-c, S3)
-├─ src/                       # Frontend (React)
-└─ server/                    # Backend (Express)
-```
-
-## 로드맵
-
-| Phase | 범위 |
-| --- | --- |
-| **Phase 1 (MVP)** | 자연어 파이프라인(저장·조회·수정·삭제) + 오늘의 브리핑, 웹 |
-| **Phase 2** | 로그인/계정, 푸시 알림, 주간 뷰, 음성 입력(STT) |
-| **Phase 3** | React Native 모바일 앱, 음성 대화(TTS), 외부 캘린더 동기화 |
-
-상세한 문제 정의, 사용자 시나리오, 데이터 모델, 리스크 분석은 [docs/plan.md](./docs/plan.md)를 참고하세요.
-
-## 문서
-
-- [기획서 (plan.md)](./docs/plan.md)
-- [디자인 (design.md)](./docs/design.md)
-- [AI 협업 규칙 (CLAUDE.md)](./CLAUDE.md)
-
-## 일정 및 프로젝트 관리
-
-- **칸반 보드:** [Briefy MVP 개발 보드](https://github.com/uncledrew-sr/hub/issues)
+- [서비스 기획](./docs/plan.md)
+- [디자인 방향](./docs/design.md)
+- [데이터 모델](./docs/data-model.md)
+- [작업 체크리스트](./checklist.md)
+- [에이전트 작업 규칙](./AGENTS.md)

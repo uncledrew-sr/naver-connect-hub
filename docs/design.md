@@ -4,7 +4,7 @@
 
 디자인 규칙(색·타이포그래피·간격·radius·카드/버튼/입력창 스타일)은 스킬로 관리한다. **실제 토큰과 컴포넌트 규칙은 아래 파일이 유일한 기준(single source of truth)이며, 이 문서에는 값을 중복 기록하지 않는다.**
 
-→ `.claude/skills/briefy-ui/SKILL.md`
+→ `.agents/skills/briefy-ui/SKILL.md`
 
 색상·간격 등을 변경할 때는 스킬 파일만 수정한다.
 

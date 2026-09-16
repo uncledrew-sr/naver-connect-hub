@@ -1,6 +1,6 @@
 -- Briefy 초기 스키마: 7개 고정 엔티티
 -- schedules, tasks, routines, routine_logs, meals, memos, reminders
--- 모든 테이블은 raw_input(원문 보존), created_at을 갖는다 (CLAUDE.md 원칙).
+-- 모든 테이블은 raw_input(원문 보존), created_at을 갖는다 (AGENTS.md 원칙).
 -- 이 파일이 테이블 생성의 유일한 경로다 — 대시보드에서 수동 생성 금지.
 
 create extension if not exists pgcrypto;

@@ -4,7 +4,7 @@
 
 ## 0. 개요
 
-Briefy가 다루는 엔티티는 CLAUDE.md에 고정된 7개뿐이다 — 화면 작업 중에 "테이블이 하나 더 필요해 보인다"는 판단이 들어도 여기서 벗어나지 않고, 먼저 사람에게 확인한다.
+Briefy가 다루는 엔티티는 AGENTS.md에 고정된 7개뿐이다 — 화면 작업 중에 "테이블이 하나 더 필요해 보인다"는 판단이 들어도 여기서 벗어나지 않고, 먼저 사람에게 확인한다.
 
 | 테이블 | 역할 한 줄 |
 | --- | --- |
@@ -24,7 +24,7 @@ routines (1) ──< (N) routine_logs      한 루틴 정의에 여러 날짜의
 
 **공통 규칙** (7개 테이블 전부 동일하게 적용):
 - PK는 `id uuid primary key default gen_random_uuid()`.
-- 모든 테이블은 `raw_input text not null`을 가진다 — 파싱이 무엇을 근거로 이 행을 만들었는지 원문을 절대 잃어버리지 않는다는 CLAUDE.md 원칙.
+- 모든 테이블은 `raw_input text not null`을 가진다 — 파싱이 무엇을 근거로 이 행을 만들었는지 원문을 절대 잃어버리지 않는다는 AGENTS.md 원칙.
 - 모든 테이블은 `created_at timestamptz not null default now()`를 가진다.
 - 날짜/시간 값은 애플리케이션 레이어(zod)에서 `YYYY-MM-DD`/`HH:mm` 문자열(ISO 8601)로 다루고, 타임존은 Asia/Seoul로 고정한다. DB 컬럼 타입은 문자열이 아니라 `date`/`time`/`timestamptz` 네이티브 타입을 쓰는데, 이는 "이번 주 마감", "오늘 일정" 같은 날짜 범위 조회를 인덱스로 빠르게 처리하기 위해서다 — Supabase JS 클라이언트가 이 컬럼들을 문자열로 주고받으므로 애플리케이션 레이어와 자연스럽게 맞물린다.
 
@@ -278,25 +278,7 @@ create index idx_reminders_target on reminders (target_type, target_id);
 
 ---
 
-## 8. mock 데이터 대조 검증
+## 8. 참고
 
-`src/mocks/briefing.ts`, `src/mocks/responses.ts`에 있는 mock 인스턴스를 위 테이블 설계와 필드 단위로 대조한 결과.
-
-| 엔티티 | mock 파일 | mock 필드 | 테이블 컬럼과 대조 |
-| --- | --- | --- | --- |
-| Schedule | `mocks/briefing.ts` (2건: 치과, 대외활동 모임) | `id,title,date,startTime,rawInput,createdAt` (`endTime` 없음 — optional이라 정상) | **일치** — 누락/초과 필드 없음 |
-| Task | `mocks/briefing.ts`(3건) + `mocks/responses.ts`(2건 추가) | `id,title,deadline,completed,rawInput,createdAt` | **일치** |
-| Routine | `mocks/briefing.ts`(1건) + `mocks/responses.ts`(2건, complete/update 시나리오용) | `id,title,content,startTime,endTime,repeatRule,rawInput,createdAt` | **일치** |
-| Meal | `mocks/briefing.ts`(1건) | `id,date,breakfast,lunch,dinner,rawInput,createdAt` | **일치** |
-| Memo | `mocks/briefing.ts`(1건) | `id,content,rawInput,createdAt` | **일치** |
-| RoutineLog | 없음 | — | **테이블 설계는 있으나 mock 인스턴스 없음.** 자연어 파이프라인이 아직 "오늘 운동 다 함" 같은 `complete` intent를 실제로 `routine_logs` insert까지 이어본 적이 없어서다(현재는 `routines` 자체를 가리키는 mock만 존재). 불일치가 아니라 커버리지 공백 — 다음 mock/서버 작업에서 채워야 할 항목. |
-| Reminder | 없음 | — | **동일하게 mock 인스턴스 없음.** plan.md 3.1.4의 "전날 알려줘" 시나리오가 이 테이블을 실제로 생성하는 예시인데 아직 mock으로 만들어진 적이 없음. 위와 동일하게 커버리지 공백으로 기록. |
-
-**결론**: 실제로 mock 인스턴스가 존재하는 5개 엔티티(schedules/tasks/routines/meals/memos)는 스키마·테이블과 필드 단위로 전부 일치하며 불일치 없음. 나머지 2개(routine_logs/reminders)는 설계는 끝났지만 아직 mock으로 한 번도 만들어보지 않은 상태 — 버그는 아니지만 "실제로 이 모양의 데이터가 화면까지 잘 흘러가는지"는 아직 검증된 적이 없다는 뜻이므로, mock 흐름 작업이나 서버 연동 시 우선적으로 확인이 필요하다.
-
----
-
-## 9. 참고
-
-- 이 문서, `shared/schemas.ts`, `supabase/migrations/0001_init.sql` 셋은 같은 설계를 서로 다른 층위에서 표현한다: **zod 스키마**는 애플리케이션(FE/BE)이 다루는 타입, **SQL**은 실제로 실행되는 유일한 테이블 생성 경로(대시보드 수동 생성 금지, CLAUDE.md), **이 문서**는 그 둘의 "왜"를 설명하는 자연어 설명서. 셋 중 하나를 바꾸면 나머지 둘도 함께 갱신해야 한다.
+- 이 문서, `shared/schemas.ts`, `supabase/migrations/0001_init.sql` 셋은 같은 설계를 서로 다른 층위에서 표현한다: **zod 스키마**는 애플리케이션(FE/BE)이 다루는 타입, **SQL**은 실제로 실행되는 유일한 테이블 생성 경로(대시보드 수동 생성 금지, AGENTS.md), **이 문서**는 그 둘의 "왜"를 설명하는 자연어 설명서. 셋 중 하나를 바꾸면 나머지 둘도 함께 갱신해야 한다.
 - 스키마 자체를 바꿔야 할 필요가 생기면(예: A-2/A-3에서 조회·대상선택 응답 스키마 확장) 새 마이그레이션 파일(`0002_*.sql`)을 추가하고 이 문서에도 해당 절을 갱신한다 — `0001_init.sql`을 직접 고치지 않는다.

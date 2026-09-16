@@ -1,7 +1,7 @@
 # Briefy 작업 체크리스트
 
 > 우선순위: **P0 → P1 → Phase 2 → Phase 3** 순서로 진행한다.
-> P0(A-1 저장+되묻기, 브리핑 홈)가 완성되기 전에는 P1(A-2 조회, A-3 수정·삭제)에 착수하지 않는다. (CLAUDE.md "하지 말 것")
+> P0(A-1 저장+되묻기, 브리핑 홈)가 완성되기 전에는 P1(A-2 조회, A-3 수정·삭제)에 착수하지 않는다. (AGENTS.md "하지 말 것")
 >
 > 완료 항목 형식: `- [x] 항목 — 완료일 / 비고`
 
@@ -37,7 +37,6 @@
 - [x] `src/components/briefing/DeadlineCard.tsx`, `DeadlineItem.tsx` — 2026-07-15
 - [x] `src/components/briefing/MemoCard.tsx` — 2026-07-15
 - [x] `src/components/common/DdayBadge.tsx` — 2026-07-15
-- [x] `src/mocks/briefing.ts` — 2026-07-15 / 프로토타입 목데이터, 2026-07-21 기준 이미 삭제됨(디렉토리 자체가 존재하지 않음) — 이 줄과 A-1 섹션의 `src/mocks/responses.ts` 관련 항목은 stale 기록
 
 **남은 작업**
 - [x] `supabase/migrations/0001_init.sql` — 2026-07-15 / schedules, tasks, routines, routine_logs, meals, memos, reminders 7개 테이블 생성. `raw_input`/`created_at` 전체 포함, `routine_logs`에 `unique(routine_id, date)` 제약 추가, `reminders.target_id`는 다형성 참조라 FK 없이 애플리케이션 레이어에서 무결성 보장하기로 함 (주석으로 명시). RLS는 켜두고 정책은 없음(서비스 롤 전용 접근 유지). **2026-07-21에 실제 Supabase 프로젝트에 적용 완료 + `supabase/seed.sql`로 plan.md 페르소나 기반 시드 데이터 삽입 완료 (7개 테이블 전부 REST API로 조회 검증)**. 설계 근거는 [docs/data-model.md](docs/data-model.md)에 문서화 완료 (2026-07-15)
@@ -94,7 +93,7 @@
 - [x] `src/components/chat/QueryResult.tsx` — 2026-07-15 / 조회 결과 UI, 현재 `Task[]` 전용 구조 (A-2 범위, 변경 없음)
 
 **A-1 완료 (2026-07-24)** — 아래 항목 전부 실제 Groq 호출로 검증 완료 (단순 생성/동시 생성/되묻기→선택/미지원 intent→memo 강등)
-- [x] LLM 제공자를 Anthropic Claude에서 **Groq**(`groq-sdk`, 모델 `openai/gpt-oss-120b`)로 변경 — 사용자가 Groq API 키를 준비해서 결정. `server/lib/anthropicClient.ts` 삭제, `server/lib/groqClient.ts` 신설(동일한 lazy singleton 패턴). `.env`/`.env.example`/`CLAUDE.md`/`README.md`의 `ANTHROPIC_API_KEY`·"Claude API" 언급을 `GROQ_API_KEY`·"Groq API"로 전부 갱신
+- [x] LLM 제공자를 Anthropic Claude에서 **Groq**(`groq-sdk`, 모델 `openai/gpt-oss-120b`)로 변경 — 사용자가 Groq API 키를 준비해서 결정. `server/lib/anthropicClient.ts` 삭제, `server/lib/groqClient.ts` 신설(동일한 lazy singleton 패턴). 환경변수와 프로젝트 문서의 `ANTHROPIC_API_KEY`·"Claude API" 언급을 `GROQ_API_KEY`·"Groq API"로 전부 갱신
 - [x] `server/lib/promptTemplates.ts` — 오늘 날짜(Asia/Seoul)·요일과 6개 엔티티 필드 정의를 주입하는 시스템 프롬프트 + Groq 응답 검증용 `LlmOutputSchema`(zod). Groq의 `strict:true` json_schema 모드는 임의 키 객체(`fields`)를 지원하지 않아 `response_format: {type:'json_object'}`(느슨한 JSON 보장)를 쓰고, 프롬프트에 정확한 출력 형식을 직접 명시 + 이후 각 `*CreateSchema`로 재검증하는 이중 안전망으로 대응
 - [x] `server/services/parseService.ts` — `parseText()`(Groq 호출 → 저장 또는 되묻기 후보 반환), `resolveCandidate()`(되묻기 선택 시 Groq 재호출 없이 바로 저장, `saveResults` 공유). intent는 이번 pass에서 **create(6종) + complete(루틴만)** 만 실제 처리 — update/delete/query 및 특정 안 되는 completion은 원문을 memo로 저장하는 동일한 안전망으로 강등(파싱 실패와 동일 취급)
 - [x] 파싱 실패/미지원 intent → memo 강등 — `fallbackToMemo()`, plan.md 3.1.5 원칙 그대로 "미지원 기능"에도 적용
@@ -104,7 +103,6 @@
 - [x] `src/pages/BriefingPage.tsx` — `handleSend`/`handleClarifySelect`/`handleUndo` 실 연동. 개별 카드 수동 병합 대신 저장 성공 시 `getBriefing()`으로 전체 재조회(루틴 순환 등 서버 로직 중복 구현 회피)
 - [x] "다음주 화요일 오후 3시 팀플 회의, 전날 알려줘" 동시 생성 — `saveResults`가 reminders를 나중에 저장하며 같은 배치의 non-reminder 항목 id로 `targetId` 자동 연결. curl로 실제 검증(리마인더가 방금 만든 일정의 진짜 id를 참조함)
 - [x] 모호한 입력("운동") → 되묻기 → 후보 선택(`/api/parse/resolve`) → 확인 카드까지 실 데이터 종단 검증 완료
-- [ ] `src/mocks/responses.ts` — 이미 삭제된 지 오래(디렉토리 자체가 없음), stale 항목
 - [ ] task 완료(intent=complete, type=tasks)는 이번 pass에서 제외 — update/delete와 동일한 "대상 검색" 문제라 A-3(P1) 범위로 남김
 - [ ] query intent(예: "이번 주 마감 뭐 있어?")는 이번 pass에서 제외 — A-2(P1) 범위, 현재는 memo로 강등됨
 
@@ -142,7 +140,7 @@
 
 ## Phase 2 — 진입 조건: 주 3회 이상 재방문 사용자 확보 + 자연어 입력 성공률 90% 이상
 
-> 참고: plan.md 원안은 "localStorage → 서버 전환"을 Phase 2로 뒀지만, 이 저장소는 CLAUDE.md 기준 Express+Supabase를 P0부터 이미 채택했다. 따라서 "서버 전환" 자체는 P0/P1에서 이미 진행되며, Phase 2는 로그인/계정·알림·주간 뷰·음성 입력만 해당한다.
+> 참고: plan.md 원안은 "localStorage → 서버 전환"을 Phase 2로 뒀지만, 이 저장소는 AGENTS.md 기준 Express+Supabase를 P0부터 이미 채택했다. 따라서 "서버 전환" 자체는 P0/P1에서 이미 진행되며, Phase 2는 로그인/계정·알림·주간 뷰·음성 입력만 해당한다.
 
 - [ ] 로그인/계정 시스템 도입 (예: Supabase Auth) — 다중 사용자 지원을 위한 `user_id` 컬럼 마이그레이션 필요
 - [ ] 푸시 알림 발송 — `reminders.remind_at` 도래 시 알림 (스케줄러/워커 도입)
@@ -159,7 +157,7 @@
 
 ---
 
-## 범위 밖 / 하지 말 것 (CLAUDE.md 기준)
+## 범위 밖 / 하지 말 것 (AGENTS.md 기준)
 
 - 음성 입력(A-4)·음성 대화(A-5)는 Phase 2/3 진입 조건 충족 전 착수 금지
 - 로그인/계정, 푸시 알림, 주간·월간 뷰, 통계·리포트, 외부 캘린더 동기화, 위젯, 브리핑 커스터마이징: Phase 2/3 이전 구현 금지

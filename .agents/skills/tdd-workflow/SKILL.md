@@ -5,7 +5,7 @@ description: Use this skill when writing a new pure function or small isolated p
 
 # TDD Workflow (Briefy)
 
-이 저장소에서 순수 함수(비즈니스 로직)를 만들 때 테스트를 먼저 쓰고 구현하는 절차. **비즈니스 로직과 UI를 분리한다**(CLAUDE.md 원칙)는 이 저장소 원칙과 맞물려, `server/services/`나 `src/lib/`의 순수 함수는 전부 이 흐름으로 만든다.
+이 저장소에서 순수 함수(비즈니스 로직)를 만들 때 테스트를 먼저 쓰고 구현하는 절차. **비즈니스 로직과 UI를 분리한다**(AGENTS.md 원칙)는 이 저장소 원칙과 맞물려, `server/services/`나 `src/lib/`의 순수 함수는 전부 이 흐름으로 만든다.
 
 ## 이 저장소의 Vitest 컨벤션
 
